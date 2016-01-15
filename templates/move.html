@@ -1,0 +1,27 @@
+{% extends "_base.html" %}
+{% block body %}
+            <div class="row">
+                <div class="col-lg-12">
+                    <div class="col-lg-3">
+                        <img width="230" height="230" src="{{ session.avatar_url }}" />
+                        <h3>{{ session.name }}</h3>
+                        <h4>{{ session.login }}</h3>
+                    </div>
+                    <div class="col-lg-9">
+                        <div>
+                            <h2>Migrate a Pull Request</h2>
+                            <form action="" method="post">
+                                <p class="help-block">Supply the full URL to the pull request you want to migrate. Such as https://github.com/ansible/ansible-modules-core/pull/1234</p>
+                                <p><input type="text" id="prurl" name="prurl" class="form-control mono" value=""></p>
+                                <p>
+                                    <label>
+                                        <input type="checkbox" id="closeorig" name="closeorig" value="1"> Close Original Pull Request?
+                                    </label>
+                                </p>
+                                <p><button class="btn btn-primary" id="update">Move</button></p>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+            </div>
+{% endblock %}

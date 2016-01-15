@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8">
+        <title>{% block title %}GitHub Pull Request Migration{% endblock %}</title>
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <link rel="stylesheet" href="//netdna.bootstrapcdn.com/bootstrap/3.0.3/css/bootstrap.min.css">
+        <style>
+            body {padding-top: 70px;}
+            .jumbotron {
+                margin-top: 30px;
+                text-align: center;
+            }
+{% block extracss %}{% endblock %}
+        </style>
+        <link rel="stylesheet" href="//netdna.bootstrapcdn.com/bootstrap/3.0.3/css/bootstrap-theme.min.css">
+    </head>
+    <body>
+        <div class="navbar navbar-inverse navbar-fixed-top">
+            <div class="container">
+                <div class="navbar-header">
+                    <button type="button" class="navbar-toggle" data-toggle="collapse" data-target=".navbar-collapse">
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                    </button>
+                    <a class="navbar-brand" href="/">GitHub Pull Request Migration</a>
+                </div>
+                <div class="navbar-collapse collapse">
+                    <p class="navbar-text navbar-right">
+                    {% if session.token %}
+                        Logged in as {{ session.name|default(session.login, True) }} ({{ session.login }})
+                    {% else %}
+                        <a href="{{ url_for('login') }}">Log In</a>
+                    {% endif %}
+                    </p>
+                </div>
+            </div>
+        </div>
+        <div class="container">
+            {% with messages = get_flashed_messages(with_categories=true) %}
+                {% if messages %}
+                    {% for category, message in messages %}
+                        <div class="alert alert-{{ category }}"><strong>{{ category|title }}!</strong> {{ message }}</div>
+                    {% endfor %}
+                {% endif %}
+            {% endwith %}
+{% block body %}{% endblock %}
+        </div>
+{% block extrajs %}{% endblock %}
+    </body>
+</html>

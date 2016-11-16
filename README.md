@@ -63,6 +63,7 @@ server {
 
     location @pass_to_prmove {
         proxy_pass http://prmove;
+        proxy_read_timeout 300s;
         client_max_body_size 1m;
     }
 }

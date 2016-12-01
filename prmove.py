@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 # Copyright 2016 Matt Martz
 # All Rights Reserved.
@@ -19,14 +19,15 @@ import re
 import json
 import shutil
 import logging
-import urlparse
+import urllib.parse
 import tempfile
 import requests
 
 from git import Repo, GitCommandError
 from functools import wraps
-from flask.ext.github import GitHub
-from flask import (Flask, session, request, url_for, redirect, flash,
+from flask_github import GitHub
+from flask_sslify import SSLify
+from flask import (Flask, Markup, session, request, url_for, redirect, flash,
                    render_template, abort)
 
 
@@ -40,18 +41,26 @@ MINUS_PLUS_RE = re.compile(r'^((?:-|\+){3} [ab]/)(.+)$', re.M)
 app = Flask('prmove')
 app.config.from_envvar('PRMOVE_CONFIG')
 github = GitHub(app)
+sslify = SSLify(app)
 
 LOG = logging.getLogger('prmove')
 
 
 class Mover(object):
-    def __init__(self, token, username, pr_url, close_original=False):
+    def __init__(self, token, username, pr_url, close_original=False, user_upstream_branch=None):
         self.username = username
         self.token = token
         self.pr_url = pr_url.rstrip('/')
         self.close_original = close_original
 
-        self.urlparts = urlparse.urlparse(self.pr_url)
+        if user_upstream_branch:
+            self.upstream_account = username
+            self.upstream_branch = user_upstream_branch
+        else:
+            self.upstream_account = 'ansible'
+            self.upstream_branch = 'devel'
+
+        self.urlparts = urllib.parse.urlparse(self.pr_url)
 
         self.branch_name = self.urlparts.path.split('/', 2)[-1]
         self.patch = None
@@ -59,17 +68,35 @@ class Mover(object):
         self.working_dir = tempfile.mkdtemp()
         self.clone = None
 
+        self.original_pull_request_url = '%s/repos%s' % (
+            GITHUB_API_BASE, self.urlparts.path.replace('/pull/', '/pulls/'))
+
         self.original_pull_request = None
 
-    def get_original_pull_request(self):
-        url = '%s/repos%s' % (GITHUB_API_BASE, self.urlparts.path)
-        url = url.replace('/pull/', '/pulls/')
-
+    def check_already_migrated(self):
         params = {
             'access_token': self.token
         }
 
+        url = '%s/repos/%s/ansible/branches/%s' % (GITHUB_API_BASE, self.username, self.branch_name)
+
         r = requests.get(url, params=params)
+
+        if r.status_code == 404:
+            return
+
+        if r.status_code == 200:
+            raise Exception('Branch %s already exists. Has this pull request already been migrated?' %
+                            self.branch_name)
+
+        r.raise_for_status()
+
+    def get_original_pull_request(self):
+        params = {
+            'access_token': self.token
+        }
+
+        r = requests.get(self.original_pull_request_url, params=params)
         r.raise_for_status()
         self.original_pull_request = r.json()
 
@@ -110,22 +137,43 @@ class Mover(object):
             )
         except GitCommandError as e:
             raise Exception('You must have a fork of ansible/ansible:'
-                            '\n%s\n%s' % (e.stdout, e.stderr))
+                            '\n%s\n%s' % (e.stdout, e.stderr)) from e
 
-        self.clone.git.remote(
-            [
-                'add',
-                'upstream',
-                'git://github.com/ansible/ansible.git'
-            ]
-        )
+        try:
+            self.clone.git.remote(
+                [
+                    'add',
+                    'upstream',
+                    'git://github.com/%s/ansible.git' % self.upstream_account,
+                ]
+            )
+        except GitCommandError as e:
+            raise Exception('Failed to add remote:'
+                            '\n%s\n%s' % (e.stdout, e.stderr)) from e
 
-        self.clone.git.fetch(all=True)
-        self.clone.git.checkout('upstream/devel', b=self.branch_name)
-        # self.clone.git.checkout('origin/prmove-test-branch',
-        #                         b=self.branch_name)
-        self.clone.git.am('%s/patch.patch' % self.working_dir)
-        self.clone.git.push(['origin', self.branch_name])
+        try:
+            self.clone.git.fetch(all=True)
+        except GitCommandError as e:
+            raise Exception('Failed fetch of repository:'
+                            '\n%s\n%s' % (e.stdout, e.stderr)) from e
+
+        try:
+            self.clone.git.checkout('upstream/%s' % self.upstream_branch, b=self.branch_name)
+        except GitCommandError as e:
+            raise Exception('Failed checkout of upstream branch:'
+                            '\n%s\n%s' % (e.stdout, e.stderr)) from e
+
+        try:
+            self.clone.git.am('%s/patch.patch' % self.working_dir)
+        except GitCommandError as e:
+            raise Exception('Failed to apply patch:'
+                            '\n%s\n%s' % (e.stdout, e.stderr)) from e
+
+        try:
+            self.clone.git.push(['origin', self.branch_name])
+        except GitCommandError as e:
+            raise Exception('Failed to push new branch for pull request:'
+                            '\n%s\n%s' % (e.stdout, e.stderr)) from e
 
         return self.clone
 
@@ -138,11 +186,10 @@ class Mover(object):
             'title': self.original_pull_request['title'],
             'body': self.original_pull_request['body'],
             'head': '%s:%s' % (self.username, self.branch_name),
-            'base': 'devel'
+            'base': self.upstream_branch,
         }
 
-        url = '%s/repos/ansible/ansible/pulls' % GITHUB_API_BASE
-        # url = '%s/repos/sivel/ansible/pulls' % GITHUB_API_BASE
+        url = '%s/repos/%s/ansible/pulls' % (GITHUB_API_BASE, self.upstream_account)
 
         r = requests.post(url, data=json.dumps(data), params=params)
         r.raise_for_status()
@@ -171,20 +218,16 @@ class Mover(object):
             'state': 'closed'
         }
 
-        number = self.original_pull_request['number']
-
-        url = '%s/repos/ansible/ansible/pulls/%s' % (GITHUB_API_BASE, number)
-
-        r = requests.post(url, data=json.dumps(data), params=params)
+        r = requests.post(self.original_pull_request_url, data=json.dumps(data), params=params)
         r.raise_for_status()
 
     def __enter__(self):
         return self
 
-    def __exit__(self, type, value, traceback):
+    def __exit__(self, ex_type, value, traceback):
         try:
             shutil.rmtree(self.working_dir)
-        except:
+        except OSError:
             LOG.exception('Failure removing working dir: %s' %
                           self.working_dir)
 
@@ -243,60 +286,60 @@ def authorized(oauth_token):
 
 @app.route('/move', methods=['GET', 'POST'])
 def move():
-    if request.method == 'GET':
-        return render_template('move.html')
+    if request.method == 'POST':
+        try:
+            move_post()
+        except Exception as e:
+            LOG.exception(e)
+            flash(e, 'danger')
 
+    return render_template('move.html')
+
+
+def move_post():
     pr_url = request.form.get('prurl')
     close_original = request.form.get('closeorig')
 
-    pull = None
-    errors = []
     with Mover(session['token'], session['login'], pr_url,
-               close_original == '1') as mover:
+               close_original == '1', user_upstream_branch=app.config.get('USER_UPSTREAM_BRANCH')) as mover:
+        mover.check_already_migrated()
+
         try:
             mover.validate_pull_request()
         except Exception as e:
-            LOG.exception('Failure validating pull request (%s): %s' %
-                          (pr_url, session['login']))
-            errors.append(e)
+            raise Exception('Failure validating pull request (%s) for %s: %s' %
+                            (pr_url, session['login'], e)) from e
 
         try:
             mover.get_patch()
         except Exception as e:
-            LOG.exception('Failure getting patch (%s): %s' %
-                          (pr_url, session['login']))
-            errors.append(e)
+            raise Exception('Failure getting patch (%s) for %s: %s' %
+                            (pr_url, session['login'], e)) from e
 
         try:
             mover.clone_ansible()
         except Exception as e:
-            LOG.exception('Failure handling git repo (%s): %s' %
-                          (pr_url, session['login']))
-            errors.append(e)
+            raise Exception('Failure handling git repository (%s) for %s: %s' %
+                            (pr_url, session['login'], e)) from e
 
         try:
             pull = mover.create_pull_request()
         except Exception as e:
-            LOG.exception('Failure creating pull request (%s): %s' %
-                          (pr_url, session['login']))
-            errors.append(e)
+            raise Exception('Failure creating pull request (%s) for %s: %s' %
+                            (pr_url, session['login'], e)) from e
+
+        flash(
+            Markup('Your pull request has been migrated to '
+                   '<a href="%(html_url)s">%(html_url)s</a>' % pull),
+            'success'
+        )
 
         try:
             mover.close_original_pull_request()
         except Exception as e:
-            LOG.exception('Failure closing orig PR (%s): %s' %
-                          (pr_url, session['login']))
-            errors.append(e)
+            raise Exception('Failure closing original pull request (%s) for %s: %s' %
+                            (pr_url, session['login'], e)) from e
 
-    for e in errors:
-        flash(e.message, 'danger')
-
-    if pull:
-        flash(
-            ('Your pull request has been migrated to '
-             '<a href="%(html_url)s">%(html_url)s</a>' % pull),
-            'success'
-        )
 
 if __name__ == '__main__':
     app.run('0.0.0.0', 5000, debug=True)

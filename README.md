@@ -1,6 +1,6 @@
 # prmove
 
-Github Pull Request Mover, specifically for the Ansible repo consolidation
+GitHub Pull Request Mover, specifically for the Ansible repo consolidation
 
 ## Configuration
 
@@ -16,6 +16,13 @@ You will need to [register an application](https://github.com/settings/applicati
 to provide API access.  The Client ID and Secret will need to be populated as
 shown in the above example.
 
+#### Development
+
+When registering for local development you can use the following values:
+
+- Hompage URL: `http://127.0.0.1:5000/`
+- Authorization callback URL: `http://127.0.0.1:5000/login/authorized`
+
 ### Secret Key
 
 This is just some secret key to use as a salt for encryption, use something like `os.urandom(32)`.
@@ -24,8 +31,22 @@ If you run this on multiple servers, make sure this value matches across all ser
 
 ## Installation/Running
 
-1. `virtualenv prmove`
+1. `virtualenv prmove --python /path/to/python3`
+1. `. prmove/bin/activate`
 1. `pip install -r requirements.txt`
+
+### Development
+
+Running via flask for development:
+
+1. `PRMOVE_CONFIG=/path/to/config.conf python3 prmove.py`
+
+The upstream pull request branch is `ansible/ansible` by default.
+You can configure this to be a branch in the user's fork instead:
+
+```
+USER_UPSTREAM_BRANCH = 'prmove-test-branch'
+```
 
 ### Production
 
@@ -71,4 +92,4 @@ server {
 
 ### Local Dev Mode
 
-1. `PRMOVE_CONFIG=/path/to/config.py python prmove.py`
+1. `PRMOVE_CONFIG=/path/to/config.py python3 prmove.py`

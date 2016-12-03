@@ -18,6 +18,7 @@
 import re
 import json
 import shutil
+import os
 import logging
 import urllib.parse
 import tempfile
@@ -47,18 +48,14 @@ LOG = logging.getLogger('prmove')
 
 
 class Mover(object):
-    def __init__(self, token, username, pr_url, close_original=False, user_upstream_branch=None):
+    def __init__(self, token, username, pr_url, close_original=False):
         self.username = username
         self.token = token
         self.pr_url = pr_url.rstrip('/')
         self.close_original = close_original
-
-        if user_upstream_branch:
-            self.upstream_account = username
-            self.upstream_branch = user_upstream_branch
-        else:
-            self.upstream_account = 'ansible'
-            self.upstream_branch = 'devel'
+        self.upstream_dir = app.config['UPSTREAM_DIR']
+        self.upstream_account = None
+        self.upstream_branch = None
 
         self.urlparts = urllib.parse.urlparse(self.pr_url)
 
@@ -66,7 +63,6 @@ class Mover(object):
         self.patch = None
 
         self.working_dir = tempfile.mkdtemp()
-        self.clone = None
 
         self.original_pull_request_url = '%s/repos%s' % (
             GITHUB_API_BASE, self.urlparts.path.replace('/pull/', '/pulls/'))
@@ -127,55 +123,64 @@ class Mover(object):
         return self.patch
 
     def clone_ansible(self):
-        origin_url = 'https://%s@github.com/%s/ansible.git' % (self.token,
-                                                               self.username)
+        clone_dir = '%s/ansible' % self.working_dir
+        origin_url = 'https://%s@github.com/%s/ansible.git' % (self.token, self.username)
+
+        shutil.copytree(self.upstream_dir, clone_dir, symlinks=True)
 
         try:
-            self.clone = Repo.clone_from(
-                origin_url,
-                '%s/ansible' % self.working_dir
-            )
+            clone = Repo(clone_dir)
         except GitCommandError as e:
-            raise Exception('You must have a fork of ansible/ansible:'
+            raise Exception('Failed to open clone of ansible/ansible repository:',
                             '\n%s\n%s' % (e.stdout, e.stderr)) from e
 
         try:
-            self.clone.git.remote(
-                [
-                    'add',
-                    'upstream',
-                    'git://github.com/%s/ansible.git' % self.upstream_account,
-                ]
-            )
+            self.upstream_account = urllib.parse.urlparse(list(clone.remote('upstream').urls)[0]).path.split('/')[1]
         except GitCommandError as e:
-            raise Exception('Failed to add remote:'
+            raise Exception('Failed to get upstream from ansible/ansible repository:',
                             '\n%s\n%s' % (e.stdout, e.stderr)) from e
 
         try:
-            self.clone.git.fetch(all=True)
+            self.upstream_branch = clone.active_branch.name
         except GitCommandError as e:
-            raise Exception('Failed fetch of repository:'
+            raise Exception('Failed to get active branch from ansible/ansible repository:',
                             '\n%s\n%s' % (e.stdout, e.stderr)) from e
 
         try:
-            self.clone.git.checkout('upstream/%s' % self.upstream_branch, b=self.branch_name)
+            origin = clone.create_remote('origin', origin_url)
         except GitCommandError as e:
-            raise Exception('Failed checkout of upstream branch:'
+            raise Exception('Failed to add origin to clone of ansible/ansible repository:'
                             '\n%s\n%s' % (e.stdout, e.stderr)) from e
 
         try:
-            self.clone.git.am('%s/patch.patch' % self.working_dir)
+            if not origin.exists():
+                raise Exception('You must have a fork of ansible/ansible at: %s' % origin_url)
+        except GitCommandError as e:
+            raise Exception('Failed to verify origin exists:'
+                            '\n%s\n%s' % (e.stdout, e.stderr)) from e
+        try:
+            clone.git.pull()
+        except GitCommandError as e:
+            raise Exception('Failed pull of upstream ansible/ansible repository:'
+                            '\n%s\n%s' % (e.stdout, e.stderr)) from e
+
+        try:
+            clone.git.checkout(b=self.branch_name)
+        except GitCommandError as e:
+            raise Exception('Failed to create new branch:'
+                            '\n%s\n%s' % (e.stdout, e.stderr)) from e
+
+        try:
+            clone.git.am('%s/patch.patch' % self.working_dir)
         except GitCommandError as e:
             raise Exception('Failed to apply patch:'
                             '\n%s\n%s' % (e.stdout, e.stderr)) from e
 
         try:
-            self.clone.git.push(['origin', self.branch_name])
+            clone.git.push(['origin', self.branch_name])
         except GitCommandError as e:
             raise Exception('Failed to push new branch for pull request:'
                             '\n%s\n%s' % (e.stdout, e.stderr)) from e
-
-        return self.clone
 
     def create_pull_request(self):
         params = {
@@ -300,8 +305,7 @@ def move_post():
     pr_url = request.form.get('prurl')
     close_original = request.form.get('closeorig')
 
-    with Mover(session['token'], session['login'], pr_url,
-               close_original == '1', user_upstream_branch=app.config.get('USER_UPSTREAM_BRANCH')) as mover:
+    with Mover(session['token'], session['login'], pr_url, close_original == '1') as mover:
         mover.check_already_migrated()
 
         try:

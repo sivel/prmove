@@ -318,7 +318,7 @@ def move_post():
                                   'Tests will fail for your old PR after rebasing. '
                                   'This is expected and can be ignored. '
                                   'For more information please consult the <a href="'
-                                  'http://docs.ansible.com/ansible/repomerge.html#move-issues-and-prs-to-new-repo'
+                                  'http://docs.ansible.com/ansible/dev_guide/repomerge.html#move-issues-and-prs-to-new-repo'
                                   '">repo merge</a> documentation. ')
 
         try:

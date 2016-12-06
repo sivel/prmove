@@ -95,6 +95,7 @@ class Mover(object):
         r = requests.get(self.original_pull_request_url, params=params)
         r.raise_for_status()
         self.original_pull_request = r.json()
+        self.mergeable_state = self.original_pull_request['mergeable_state']
 
         return self.original_pull_request
 
@@ -157,11 +158,6 @@ class Mover(object):
                 raise Exception('You must have a fork of ansible/ansible at: %s' % origin_url)
         except GitCommandError as e:
             raise Exception('Failed to verify origin exists:'
-                            '\n%s\n%s' % (e.stdout, e.stderr)) from e
-        try:
-            clone.git.pull()
-        except GitCommandError as e:
-            raise Exception('Failed pull of upstream ansible/ansible repository:'
                             '\n%s\n%s' % (e.stdout, e.stderr)) from e
 
         try:
@@ -294,6 +290,9 @@ def move():
     if request.method == 'POST':
         try:
             move_post()
+        except MarkupException as e:
+            LOG.exception(e)
+            flash(Markup(e.markup), 'danger')
         except Exception as e:
             LOG.exception(e)
             flash(e, 'danger')
@@ -313,6 +312,14 @@ def move_post():
         except Exception as e:
             raise Exception('Failure validating pull request (%s) for %s: %s' %
                             (pr_url, session['login'], e)) from e
+
+        if mover.mergeable_state == 'dirty':
+            raise MarkupException('Please rebase your branch and update your PR before migrating. '
+                                  'Tests will fail for your old PR after rebasing. '
+                                  'This is expected and can be ignored. '
+                                  'For more information please consult the <a href="'
+                                  'http://docs.ansible.com/ansible/repomerge.html#move-issues-and-prs-to-new-repo'
+                                  '">repo merge</a> documentation. ')
 
         try:
             mover.get_patch()
@@ -343,6 +350,12 @@ def move_post():
         except Exception as e:
             raise Exception('Failure closing original pull request (%s) for %s: %s' %
                             (pr_url, session['login'], e)) from e
+
+
+class MarkupException(Exception):
+    def __init__(self, markup):
+        super(MarkupException, self).__init__(markup)
+        self.markup = markup
 
 
 if __name__ == '__main__':

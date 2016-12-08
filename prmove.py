@@ -148,13 +148,13 @@ class Mover(object):
                             '\n%s\n%s' % (e.stdout, e.stderr)) from e
 
         try:
-            origin = clone.create_remote('origin', origin_url)
+            clone.create_remote('origin', origin_url)
         except GitCommandError as e:
             raise Exception('Failed to add origin to clone of ansible/ansible repository:'
                             '\n%s\n%s' % (e.stdout, e.stderr)) from e
 
         try:
-            if not origin.exists():
+            if requests.get(origin_url).status_code != 200:
                 raise Exception('You must have a fork of ansible/ansible at: %s' % origin_url)
         except GitCommandError as e:
             raise Exception('Failed to verify origin exists:'

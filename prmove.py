@@ -18,7 +18,6 @@
 import re
 import json
 import shutil
-import os
 import logging
 import urllib.parse
 import tempfile
@@ -167,7 +166,7 @@ class Mover(object):
                             '\n%s\n%s' % (e.stdout, e.stderr)) from e
 
         try:
-            clone.git.am('%s/patch.patch' % self.working_dir)
+            clone.git.am('%s/patch.patch' % self.working_dir, '--3way')
         except GitCommandError as e:
             raise Exception('Failed to apply patch:'
                             '\n%s\n%s' % (e.stdout, e.stderr)) from e

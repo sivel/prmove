@@ -67,6 +67,7 @@ class Mover(object):
             GITHUB_API_BASE, self.urlparts.path.replace('/pull/', '/pulls/'))
 
         self.original_pull_request = None
+        self.is_migration_by_owner = None
 
     def check_already_migrated(self):
         params = {
@@ -95,15 +96,9 @@ class Mover(object):
         r.raise_for_status()
         self.original_pull_request = r.json()
         self.mergeable_state = self.original_pull_request['mergeable_state']
+        self.is_migration_by_owner = self.original_pull_request['user']['login'] == self.username
 
         return self.original_pull_request
-
-    def validate_pull_request(self):
-        original = self.get_original_pull_request()
-        if original['user']['login'] != self.username:
-            raise Exception('You (%s) are not the PR owner (%s): %s' %
-                            (self.username, original['user']['login'],
-                             self.pr_url))
 
     def get_patch(self):
         r = requests.get('%s.patch' % self.pr_url)
@@ -199,6 +194,9 @@ class Mover(object):
         comment = {
             'body': 'Migrated from %s' % self.original_pull_request['html_url']
         }
+
+        if not self.is_migration_by_owner:
+            comment['body'] += ' by %s (not original author)' % self.username
 
         r = requests.post(pull['comments_url'], data=json.dumps(comment),
                           params=params)
@@ -307,7 +305,7 @@ def move_post():
         mover.check_already_migrated()
 
         try:
-            mover.validate_pull_request()
+            mover.get_original_pull_request()
         except Exception as e:
             raise Exception('Failure validating pull request (%s) for %s: %s' %
                             (pr_url, session['login'], e)) from e

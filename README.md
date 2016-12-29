@@ -1,6 +1,6 @@
 # prmove
 
-Github Pull Request Mover, specifically for the Ansible repo consolidation
+GitHub Pull Request Mover, specifically for the Ansible repo consolidation
 
 ## Configuration
 
@@ -8,13 +8,29 @@ Github Pull Request Mover, specifically for the Ansible repo consolidation
 GITHUB_CLIENT_ID = '1ecad3b34f7b437db6d0'
 GITHUB_CLIENT_SECRET = '6689ba85bb024d1b97370c45f1316a16d08bba20'
 SECRET_KEY = '\\{\x86m\x01\xc7\xe6\xa1\x19\x93\xe3F\xf5\x192)\x87k0\xdd\xcb\x1d\x10%'
+UPSTREAM_DIR = '/path/to/clone/of/ansible/ansible/merged/devel/branch'
 ```
+
+### Upstream Repository Clone
+
+The path defined by `UPSTREAM_DIR` must:
+
+- Be a clone of the `ansible` repository to which pull requests will be submitted.
+- Have the default remote renamed from `origin` to `upstream`.
+- Been merged with the module repositories using the `hacking/unify_repos.sh` script from `ansible/ansible`.
 
 ### GitHub credentials
 
 You will need to [register an application](https://github.com/settings/applications/new)
 to provide API access.  The Client ID and Secret will need to be populated as
 shown in the above example.
+
+#### Development
+
+When registering for local development you can use the following values:
+
+- Hompage URL: `http://127.0.0.1:5000/`
+- Authorization callback URL: `http://127.0.0.1:5000/login/authorized`
 
 ### Secret Key
 
@@ -24,8 +40,16 @@ If you run this on multiple servers, make sure this value matches across all ser
 
 ## Installation/Running
 
-1. `virtualenv prmove`
+1. `virtualenv prmove --python /path/to/python3`
+1. `. prmove/bin/activate`
 1. `pip install -r requirements.txt`
+
+### Development
+
+Running via flask for development:
+
+1. `PRMOVE_CONFIG=/path/to/config.conf python3 prmove.py`
+
 
 ### Production
 
@@ -71,4 +95,4 @@ server {
 
 ### Local Dev Mode
 
-1. `PRMOVE_CONFIG=/path/to/config.py python prmove.py`
+1. `PRMOVE_CONFIG=/path/to/config.py python3 prmove.py`
